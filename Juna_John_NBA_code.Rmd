@@ -1,0 +1,492 @@
+---
+  title: "Predicting NBA player Salaries "
+author: " John and Juna"
+output: 
+  pdf_document: 
+  latex_engine: 
+  xelatex
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install / load pertinent libraries
+
+```{r echo=TRUE, message=FALSE}
+library(readr)
+library(plyr)
+library(ggthemes)
+library(glmnet)
+library(randomForest)
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+library(randomForest)
+library(gridExtra)
+library(glmnet)
+library(psych)
+library(reshape)
+library(gridExtra)
+library(grid)
+library(dplyr)
+set.seed(1)
+```
+
+### Question 1 and 2:  IMPORTS, CLEANING, AND INITIAL WRANGLING ###
+
+## Loading the NBA dataset with the standartized salary variable by taking its log
+
+```{r, warning=FALSE, message=FALSE}
+df = read.csv('./NBA_new.csv')
+sdev = apply(df[,-42],2,sd)
+df[,-42] = t(t(df[,-42])/sdev) # Standardizing predictors, divided by standard deviation.
+
+```
+
+## Getting a view of our 5 first observations
+## Dimensions of the data
+
+```{r, warning=FALSE, message=FALSE}
+head(df)
+
+dim(df) # 413 x 42
+#413 rows
+#42 columns
+```  
+
+## Checking the normal distribution of our response variable (log salaries) through a histogram
+
+```{r}
+n =      dim(df)[1] #413
+p =      dim(df)[2]-1 # 41
+X =      data.matrix(df[,-42])
+y =      (df[,42])
+X.orig = X
+#describe(y)
+hist_y <-df %>%
+  ggplot(aes(salary ))+
+  geom_histogram(color = "darkblue", fill="lightblue",bins = 11)+
+  geom_vline(aes(xintercept=mean(salary)), color="black",
+             linetype="dashed")+
+  labs(title="Histogram of Salaries",x="Log Salary", y = "Frequency")+
+  theme_classic()
+grid.arrange(hist_y, nrow=1)
+
+```
+
+
+### Question 3 for 100 SAMPLES ###
+
+
+## Repetition count and 80-20 split of the dataset
+##Declare / initialize values and vectors
+
+```{r, warning=FALSE, message=FALSE}
+n.train        =     floor(0.8*n)
+n.test         =     n-n.train
+
+M              =     100 # repeat 100 times
+Rsq.train.las  =     rep(0,M)
+Rsq.test.las   =     rep(0,M)
+Rsq.train.rid  =     rep(0,M)
+Rsq.test.rid   =     rep(0,M)
+Rsq.test.rf    =     rep(0,M)  
+Rsq.train.rf   =     rep(0,M)
+Rsq.test.en    =     rep(0,M)  
+Rsq.train.en   =     rep(0,M)
+timing.rid     =     rep(0,M)
+timing.las     =     rep(0,M)
+timing.en      =     rep(0,M)
+timing.rf      =     rep(0,M)
+```  
+
+## Fitting Ridge, Lasso, Elastic Net and Random Forest methods. Recording the train and test R squares
+## Randomly split the data into train and test
+## Recording the time it takes to fit these 4 methods
+
+```{r, warning=FALSE, message=FALSE}
+  
+for (m in c(1:M)) {
+  shuffled_indexes =     sample(n)
+  train            =     shuffled_indexes[1:n.train]
+  test             =     shuffled_indexes[(1+n.train):n]
+  X.train          =     X[train, ]
+  y.train          =     y[train]
+  X.test           =     X[test, ]
+  y.test           =     y[test]
+  
+  # fit ridge and calculate and record the train and test R squares 
+  a=0 # ridge
+  tic = Sys.time()
+  cv.fit1           =     cv.glmnet(X.train, y.train, alpha = a, nfolds = 10)
+  fit1              =     glmnet(X.train, y.train, alpha = a, lambda = cv.fit1$lambda.min)
+  timing.rid[m]     =     as.double(Sys.time() - tic)  
+  y.train.hat1      =     predict(fit1, newx = X.train, type = "response") # y.train.hat=X.train %*% fit$beta + fit$a0
+  y.test.hat1       =     predict(fit1, newx = X.test, type = "response") # y.test.hat=X.test %*% fit$beta  + fit$a0
+  Rsq.test.rid[m]   =     1-mean((y.test - y.test.hat1)^2)/mean((y - mean(y))^2)
+  Rsq.train.rid[m]  =     1-mean((y.train - y.train.hat1)^2)/mean((y - mean(y))^2) 
+  
+   # fit lasso and calculate and record the train and test R squares 
+  a=1 # lasso
+  tic = Sys.time()
+  cv.fit2           =     cv.glmnet(X.train, y.train, alpha = a, nfolds = 10)
+  fit2              =     glmnet(X.train, y.train, alpha = a, lambda = cv.fit2$lambda.min)
+  timing.las[m]     =     as.double(Sys.time()-tic)
+  y.train.hat2      =     predict(fit2, newx = X.train, type = "response") # y.train.hat=X.train %*% fit$beta + fit$a0
+  y.test.hat2       =     predict(fit2, newx = X.test, type = "response") # y.test.hat=X.test %*% fit$beta  + fit$a0
+  Rsq.test.las[m]   =     1-mean((y.test - y.test.hat2)^2)/mean((y - mean(y))^2)
+  Rsq.train.las[m]  =     1-mean((y.train - y.train.hat2)^2)/mean((y - mean(y))^2)  
+  
+  # fit elastic-net and calculate and record the train and test R squares 
+  a=0.5 # elastic-net
+  tic = Sys.time()
+  cv.fit3          =     cv.glmnet(X.train, y.train, alpha = a, nfolds = 10)
+  fit3             =     glmnet(X.train, y.train, alpha = a, lambda = cv.fit3$lambda.min)
+  timing.en[m]     =     as.double(Sys.time()-tic)
+  y.train.hat3     =     predict(fit3, newx = X.train, type = "response") # y.train.hat=X.train %*% fit$beta + fit$a0
+  y.test.hat3      =     predict(fit3, newx = X.test, type = "response") # y.test.hat=X.test %*% fit$beta  + fit$a0
+  Rsq.test.en[m]   =     1-mean((y.test - y.test.hat3)^2)/mean((y - mean(y))^2)
+  Rsq.train.en[m]  =     1-mean((y.train - y.train.hat3)^2)/mean((y - mean(y))^2)  
+  
+  # fit RF and calculate and record the train and test R squares 
+  tic = Sys.time()
+  rf               =     randomForest(X.train, y.train, mtry = sqrt(p), importance = TRUE)
+  timing.rf[m]     =     as.double(Sys.time()-tic)
+  y.test.hat4      =     predict(rf, X.test)
+  y.train.hat4     =     predict(rf, X.train)
+  Rsq.test.rf[m]   =     1-mean((y.test - y.test.hat4)^2)/mean((y - mean(y))^2)
+  Rsq.train.rf[m]  =     1-mean((y.train - y.train.hat4)^2)/mean((y - mean(y))^2)  
+  
+  cat(sprintf("m=%3.f| Rsq.test.rid=%.2f,Rsq.test.las=%.2f,Rsq.test.rf=%.2f,  
+              Rsq.test.en=%.2f| Rsq.train.rid=%.2f,Rsq.train.las=%.2f, 
+              Rsq.train.rf=%.2f,Rsq.train.en=%.2f| \n", m,  
+              Rsq.test.rid[m], Rsq.test.las[m], Rsq.test.rf[m], Rsq.test.en[m],  
+              Rsq.train.rid[m], Rsq.train.las[m], Rsq.train.rf[m], Rsq.train.en[m]))
+}
+```  
+
+## Recording the average time it took to fit Ridge, Lasso, Elastic Net and Random Forest methods 
+
+```{r, warning=FALSE, message=FALSE}
+  
+time.rid = mean(timing.rid) # 
+time.las = mean(timing.las) # 
+time.en  = mean(timing.en)  # 
+time.rf  = mean(timing.rf)  # 
+
+time.rid
+time.las
+time.en
+time.rf
+
+## From the results we see that RF took the longest and Ridge the quickest time
+```  
+
+## Number of features for 3 models (Ridge, Lasso , Elastic Net) picked during Cross Validation
+
+```{r, warning=FALSE, message=FALSE}
+  
+num.features.rid = colSums(fit1$beta != 0)
+num.features.las = colSums(fit2$beta != 0)
+num.features.en  = colSums(fit3$beta != 0)
+
+num.features.rid
+num.features.las
+num.features.en
+
+```  
+
+## Plotting Cross Validation curves for the 3 models(Ridge, Lasso, EN)
+
+```{r, warning=FALSE, message=FALSE}
+# CV curves
+cv_e=plot(cv.fit3)
+cv_l=plot(cv.fit2)
+cv_r=plot(cv.fit1)
+
+
+```  
+
+### Question 4: R-SQUARED and Residual BOXPLOTS ###
+
+## Plotting train and test R squares for the 4 models
+
+```{r, warning=FALSE, message=FALSE}
+
+par(mfrow=c(1,1))
+train_error = data.frame(cbind(Rsq.train.en,Rsq.train.las,Rsq.train.rid,Rsq.train.rf))
+colnames(train_error) = c("Elastic", "Lasso", "Ridge", "RF")
+test_error = data.frame(cbind(Rsq.test.en,Rsq.test.las,Rsq.test.rid,Rsq.test.rf))
+colnames(test_error) = c("Elastic", "Lasso", "Ridge", "RF")
+
+bp_trrsq = ggplot(melt(train_error[,1:4]), aes(x = variable, y = value, color = variable)) + 
+  geom_boxplot() + ylim(0.05,1.025) + theme(legend.position="none") + scale_color_brewer(palette="Dark2") +
+  labs(x = element_blank(), y = "R-Squred", title = expression(Train~Set~R-Squared))
+bp_tersq = ggplot(melt(test_error), aes(x = variable, y = value, color = variable)) + 
+  geom_boxplot() + ylim(0.05,1.025) + theme(legend.position="none") + scale_color_brewer(palette="Dark2") +
+  labs(x = element_blank(), y = "R-Squred", title = expression(Test~Set~R-Squared))
+grid.arrange(bp_trrsq, bp_tersq , nrow = 1, widths = c(2,2))
+
+
+print(describe(Rsq.train.rid), digits=4)
+print(describe(Rsq.train.las), digits=4)
+print(describe(Rsq.train.en), digits=4)
+print(describe(Rsq.train.rf), digits=4)
+print(describe(Rsq.test.rid), digits=4)
+print(describe(Rsq.test.las), digits=4)
+print(describe(Rsq.test.en), digits=4)
+print(describe(Rsq.test.rf), digits=4)
+
+## From the R2 training and testing boxplots  we see that RF has a very high R2 on the training set comparing to the other 3 models. On the testing set we see that R2 are all similar and the RF R2 dropped significantly. This tells us that this model is overfitting the training data so is not as good as the other models. So the next best performance on R2 test has the Ridge model.
+
+
+```  
+
+## Getting the 90% R2 test interval for Ridge, Lasso, Elastic Net and Random forest
+
+```{r, warning=FALSE, message=FALSE}
+##90% test R2 
+
+quantile(Rsq.test.rid,c(0.05,0.95))
+quantile(Rsq.test.las,c(0.05,0.95))
+quantile(Rsq.test.en,c(0.05,0.95))
+quantile(Rsq.test.rf,c(0.05,0.95))
+
+## RF comes with the best R2 test interval but because of the overfitting problem we saw on the R2 boxplots we don't take it in consideration. Ridge has the next best R2 test interval. 
+```  
+
+## Getting the train and test residuals for all the models
+
+```{r, warning=FALSE, message=FALSE}
+# Residuals
+r.train.rid = (y.train - y.train.hat1)[,1]
+r.test.rid  = (y.test  - y.test.hat1)[,1]
+
+r.train.las = (y.train - y.train.hat2)[,1]
+r.test.las  = (y.test  - y.test.hat2)[,1]
+
+r.train.en  = (y.train - y.train.hat3)[,1]
+r.test.en   = (y.test  - y.test.hat3)[,1]
+
+r.test.rf   = (y.test  - y.test.hat4)
+r.train.rf  = (y.train - y.train.hat4)
+```  
+
+## Plotting the train and test residual boxplots for Ridge, Lasso, Elastic Net and Random Forest
+
+```{r, warning=FALSE, message=FALSE}
+  
+# Boxplots of residuals
+
+par(mfrow=c(1,1))
+train_residual = data.frame(cbind(r.train.en,r.train.las,r.train.rid,r.train.rf))
+colnames(train_residual) = c("Elastic", "Lasso", "Ridge", "RF")
+test_residual = data.frame(cbind(r.test.en,r.test.las,r.test.rid,r.test.rf))
+colnames(test_residual) = c("Elastic", "Lasso", "Ridge", "RF")
+
+bp_trres = ggplot(melt(train_residual), aes(x = variable, y = value, color = variable)) + 
+  geom_boxplot() + ylim(-3,3) + theme(legend.position="none") + scale_color_brewer(palette="Dark2") +
+  labs(x = element_blank(), y = "Residuals", title = expression(Train~Set~Residuals))
+bp_teres = ggplot(melt(test_residual), aes(x = variable, y = value, color = variable)) + 
+  geom_boxplot() + ylim(-3,3) + theme(legend.position="none") + scale_color_brewer(palette="Dark2") +
+  labs(x = element_blank(), y = "Residuals", title = expression(Test~Set~Residuals))
+grid.arrange(bp_trres, bp_teres, nrow = 1, widths = c(2,2))
+
+## We can see that the residual of RF has bigger variability on testing set than in training set. The other 3 models are more consistent and similar on the residual performance which makes them better models
+
+```  
+
+## Using 100 samples
+
+```{r, warning=FALSE, message=FALSE}
+  
+N =     100
+beta.rid.n      =     matrix(0, nrow = p, ncol = N)    
+beta.las.n      =     matrix(0, nrow = p, ncol = N)
+beta.rf.n       =     matrix(0, nrow = p, ncol = N)    
+beta.en.n       =     matrix(0, nrow = p, ncol = N)
+timing.rid2      =     rep(0,M)
+timing.las2      =     rep(0,M)
+timing.en2       =     rep(0,M)
+timing.rf2       =     rep(0,M)
+Rsq.n.las       =     rep(0,M)
+Rsq.n.en        =     rep(0,M)
+Rsq.n.rid       =     rep(0,M)
+Rsq.n.rf        =     rep(0,M) 
+
+for (m in 1:N){
+  n_indexes       =     sample(n, replace=T)
+  X.n             =     X[n_indexes, ]
+  y.n             =     y[n_indexes]
+  
+  # fit n rf
+  tic              =     Sys.time()
+  rf.n            =     randomForest(X.n, y.n, mtry = sqrt(p), importance = TRUE)
+  timing.rf2[m]    =     as.double(Sys.time()-tic)
+  beta.rf.n[,m]   =     as.vector(rf$importance[,1])
+  # fit n rid
+  a                =     0 # ridge
+  tic              =     Sys.time()
+  cv.n.fit1       =     cv.glmnet(X.n, y.n, alpha = a, nfolds = 10)
+  n.fit1          =     glmnet(X.n, y.n, alpha = a, lambda = cv.n.fit1$lambda.min)  
+  timing.rid2[m]   =     as.double(Sys.time()-tic)
+  beta.rid.n[,m]  =     as.vector(n.fit1$beta)
+
+  # fit n las
+  a                =     1 # lasso
+  tic              =     Sys.time()
+  cv.n.fit2       =     cv.glmnet(X.n, y.n, alpha = a, nfolds = 10)
+  n.fit2          =     glmnet(X.n, y.n, alpha = a, lambda = cv.n.fit2$lambda.min) 
+  timing.las2[m]   =     as.double(Sys.time()-tic)
+  beta.las.n[,m]  =     as.vector(n.fit2$beta)
+  # fit n en
+  a                =     0.5 # elastic-net
+  tic              =     Sys.time()
+  cv.n.fit3       =     cv.glmnet(X.n, y.n, alpha = a, nfolds = 10)
+  n.fit3          =     glmnet(X.n, y.n, alpha = a, lambda = cv.n.fit3$lambda.min)  
+  timing.en2[m]    =     as.double(Sys.time()-tic)
+  beta.en.n[,m]   =     as.vector(n.fit3$beta)
+  cat(sprintf("N %3.f \n", m))
+}
+
+
+```
+
+
+
+
+## calculate standard errors / alternatively you could use qunatiles to find upper and lower bounds
+
+
+```{r, warning=FALSE, message=FALSE}
+rf.n.sd    = apply(beta.rf.n, 1, "sd")
+rid.n.sd   = apply(beta.rid.n, 1, "sd")
+las.n.sd   = apply(beta.las.n, 1, "sd")
+en.n.sd    = apply(beta.en.n, 1, "sd")
+
+rf.n.sd
+rid.n.sd
+las.n.sd
+en.n.sd
+```  
+
+### Question 5: Fitting all the data and coefficient performance ##
+
+## Fitting Ridge, Lasso, Elastinc Net and Random Forest to the whole data
+## Tracking the time for each model
+
+```{r}
+  
+# fit rf to the whole data
+rfstart.time<-Sys.time()
+rf2               =     randomForest(X, y, mtry = sqrt(p), importance = TRUE)
+rfend.time<-Sys.time()
+y.rf.hat          =     predict(rf2, X)
+Rsq.n.rf         =     1-mean((y - y.rf.hat)^2)/mean((y - mean(y))^2)
+rf.time<-(rfend.time-rfstart.time)
+# fit rid to the whole data
+ridstart.time<-Sys.time()
+a=0 # ridge
+cv.fit4           =     cv.glmnet(X, y, alpha = a, nfolds = 10)
+fit4              =     glmnet(X, y, alpha = a, lambda = cv.fit4$lambda.min)
+ridend.time<-Sys.time()
+y.rid.hat         =     predict(fit4, newx = X, type = "response")
+Rsq.n.rid        =     1-mean((y - y.rid.hat)^2)/mean((y - mean(y))^2)
+rid.time<-(ridend.time-ridstart.time)
+
+
+# fit las to the whole data
+lasstart.time<-Sys.time()
+a=1 # lasso
+cv.fit5           =     cv.glmnet(X, y, alpha = a, nfolds = 10)
+fit5              =     glmnet(X, y, alpha = a, lambda = cv.fit5$lambda.min)
+lasend.time<-Sys.time()
+y.las.hat         =     predict(fit5, newx = X, type = "response")
+Rsq.n.las        =     1-mean((y - y.las.hat)^2)/mean((y - mean(y))^2)
+las.time<-(lasend.time-lasstart.time)
+
+# fit en to the whole data
+enstart.time<-Sys.time()
+a=0.5 # elastic-net
+cv.fit6           =     cv.glmnet(X, y, alpha = a, nfolds = 10)
+fit6              =     glmnet(X, y, alpha = a, lambda = cv.fit6$lambda.min)
+enend.time<-Sys.time()
+y.en.hat          =     predict(fit6, newx = X, type = "response")
+Rsq.n.en         =     1-mean((y - y.en.hat)^2)/mean((y - mean(y))^2)
+en.time<-(enend.time-enstart.time)
+
+print(c(Rsq.n.rid, Rsq.n.las, Rsq.n.en, Rsq.n.rf))
+print(rf.time)
+print(rid.time)
+print(las.time)
+print(en.time)
+
+
+## On time recording we have similar output with the 100 samples. RF took the longest time and Ridge the quickest.
+
+```  
+
+
+## Estimated Coefficients for Lasso, Elastic-net, and Ridge
+## Variable Importance for Random Forest
+
+```{r}
+betaS.rf               =     data.frame(names(X[1,]), as.vector(rf2$importance[,1]), 2*rf.n.sd)
+colnames(betaS.rf)     =     c( "feature", "value", "err")
+
+betaS.rid              =     data.frame(names(X[1,]), as.vector(fit4$beta), 2*rid.n.sd)
+colnames(betaS.rid)    =     c( "feature", "value", "err")
+
+betaS.las              =     data.frame(names(X[1,]), as.vector(fit5$beta), 2*las.n.sd)
+colnames(betaS.las)    =     c( "feature", "value", "err")
+
+betaS.en               =     data.frame(names(X[1,]), as.vector(fit6$beta), 2*en.n.sd)
+colnames(betaS.en)     =     c( "feature", "value", "err")
+```  
+
+## Ordering all methods by Elastic-net's estimated coefficients
+
+```{r}
+  
+# we need to change the order of factor levels by specifying the order explicitly.
+betaS.rf$feature     =  factor(betaS.rf$feature, levels = betaS.rf$feature[order(betaS.en$value, decreasing = TRUE)])
+betaS.rid$feature    =  factor(betaS.rid$feature, levels = betaS.rid$feature[order(betaS.en$value, decreasing = TRUE)])
+betaS.las$feature    =  factor(betaS.las$feature, levels = betaS.las$feature[order(betaS.en$value, decreasing = TRUE)])
+betaS.en$feature     =  factor(betaS.en$feature, levels = betaS.en$feature[order(betaS.en$value, decreasing = TRUE)])
+
+```  
+
+## Plots of estimated coefficients for Ridge, Lasso, EN and variable importance for RF
+
+```{r}
+
+lasPlot =  ggplot(betaS.las, aes(x=feature, y=value)) +
+  geom_bar(stat = "identity", fill="white", colour="#FF6D0099")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(x = element_blank(), y = "Coefficients", title = expression(Lasso))
+
+enPlot =  ggplot(betaS.en, aes(x=feature, y=value)) +
+  geom_bar(stat = "identity", fill="white", colour="springgreen4") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(x = element_blank(), y = "Coefficients", title = expression(Elastic~Net)) 
+
+rgPlot =  ggplot(betaS.rid, aes(x=feature, y=value)) +
+  geom_bar(stat = "identity", fill="white", colour="mediumblue")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(x = element_blank(), y = "Coefficients", title = expression(Ridge))
+
+rfPlot =  ggplot(betaS.rf, aes(x=feature, y=value)) +
+  geom_bar(stat = "identity", fill="white", colour="magenta")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  labs(x = "Feature", y = "Importance", title = expression(Random~Forest))
+
+grid.arrange(enPlot, lasPlot, rgPlot, rfPlot, nrow = 4)
+
+
+## As we can see from the plots the main predictors positively and negatively associated with the salary response are similar for EN and Lasso while the variable importance for RF changes significantly.
+
+```  
+
+
+
